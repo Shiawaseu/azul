@@ -103,11 +103,11 @@ function WebSocketClient:connect()
 
 	-- Set up message handler (only MessageReceived is documented)
 	self.client.MessageReceived:Connect(function(message)
-		local parseSuccess, parseError = pcall(function()
+		local parseSuccess, parseResult = pcall(function()
 			self:handleMessage(message)
 		end)
 		if not parseSuccess then
-			warn("[WebSocket]: Error handling message:", parseError)
+			warn("[WebSocket]: Error handling message:", parseResult)
 			warn("[WebSocket]: Raw message was:", message)
 		end
 	end)
@@ -115,8 +115,8 @@ function WebSocketClient:connect()
 	-- Notify connection established
 	self:debugPrint("Connected to", self.url)
 	if self.messageHandlers.connect then task.defer(function()
-			self.messageHandlers.connect()
-		end) end
+		self.messageHandlers.connect()
+	end) end
 
 	return true
 end
@@ -136,18 +136,18 @@ function WebSocketClient:handleMessage(message)
 
 	self:debugPrint("Received message:", string.sub(message, 1, 100))
 
-	local success, data = pcall(function()
+	local success, result = pcall(function()
 		return HttpService:JSONDecode(message)
 	end)
 
 	if success then
-		if self.messageHandlers.message then self.messageHandlers.message(data) end
-		local messageType = data and data.type
+		if self.messageHandlers.message then self.messageHandlers.message(result) end
+		local messageType = result and result.type
 		if type(messageType) == "string" and self.messageHandlers[messageType] then
-			self.messageHandlers[messageType](data)
+			self.messageHandlers[messageType](result)
 		end
 	elseif not success then
-		warn("[WebSocket]: Failed to parse message:", message)
+		warn(`[WebSocket]: Failed to decode message as JSON: {result}`)
 	end
 end
 
