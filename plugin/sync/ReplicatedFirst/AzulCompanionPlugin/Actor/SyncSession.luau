@@ -746,7 +746,7 @@ function SyncSession.new(plugin: Plugin, settingsStore: SettingsStore.SettingsSt
 			local handshakeResult = tryHandshake()
 
 			if not handshakeResult then
-				warn("[Azul]: Failed to connect to the Daemon after multiple attempts, disconnecting...")
+				-- warn("[Azul]: Failed to connect to the Daemon after multiple attempts, disconnecting...")
 				self:stopSync()
 				return
 			end

@@ -22,6 +22,12 @@ local Enums = require("../Enums")
 local SettingsStore = require("../SettingsStore")
 local SyncSession = require("./SyncSession")
 
+local newUI = require("../App/UI")
+
+local function debugPrint(...)
+	if Config.DEBUG_MODE then print("[🐛 Azul]", ...) end
+end
+
 local settingsStore = SettingsStore.new(plugin, Config, Enums.scope, {
 	defaultScope = Enums.scope.GLOBAL,
 })
@@ -37,7 +43,11 @@ local uiCallbacks: UI.CallbackFunctions = {
 		session:stopSync()
 	end,
 	onConfigChanged = function(key, value)
-		session:debugPrint(`Config {key} updated to: {value}`)
+		session:debugPrint(
+			`Config {key} updated to: {if type(value) == "table" then table.concat(value, ", ") else tostring(value)}`
+		)
+		Config[key] = value
+		if key == "SERVICE_LIST" then session:rebuildServiceSet() end
 	end,
 	onSettingsScopeChanged = function(newScope)
 		session:onSettingsScopeChanged(newScope)
@@ -49,19 +59,48 @@ local uiCallbacks: UI.CallbackFunctions = {
 }
 
 local uiHelpers = {
-	debugPrint = function(...)
-		session:debugPrint(...)
-	end,
-	infoPrint = function(...)
-		session:infoPrint(...)
-	end,
 	rebuildServiceSet = function()
 		session:rebuildServiceSet()
 	end,
+	openPlaceConfig = function()
+		local ScriptEditorService = game:GetService("ScriptEditorService")
+		local ServerStorage = game:GetService("ServerStorage")
+		local azulFolder = ServerStorage:FindFirstChild("Azul") :: Folder
+		if not azulFolder then
+			debugPrint("Place doesn't have an 'Azul' folder in ServerStorage, creating one...")
+			local newAzulFolder = Instance.new("Folder")
+			newAzulFolder.Name = "Azul"
+			newAzulFolder.Parent = ServerStorage
+			azulFolder = newAzulFolder
+		end
+
+		local azulDaemonSettings = azulFolder:FindFirstChild("Config") :: ModuleScript
+		if not azulDaemonSettings then
+			debugPrint("Place doesn't have a 'Config' ModuleScript in the 'Azul' folder, creating one...")
+			local newConfigModule = Instance.new("ModuleScript")
+			newConfigModule.Name = "Config"
+			newConfigModule.Source = [[
+-- Per-place Daemon configuration
+-- This file is sent to the Daemon when it connects, and can be used to specify settings for this specific Place, such as push mappings.
+
+-- More info about the format:
+-- https://azul-docs.vercel.app/advanced-usage/#per-place-daemon-configuration
+
+return {}
+			]]
+			newConfigModule.Parent = azulFolder
+			azulDaemonSettings = newConfigModule
+		end
+
+		ScriptEditorService:OpenScriptDocumentAsync(azulDaemonSettings)
+	end,
 }
 
-local azulUI = UI.new(plugin, uiCallbacks, settingsStore:getScope(), uiHelpers)
-session:setUI(azulUI)
+--  local azulUI = UI.new(plugin, uiCallbacks, settingsStore:getScope(), uiHelpers)
+--  session:setUI(azulUI)
+
+local newAzulUI = newUI.new(plugin, uiCallbacks, settingsStore:getScope(), uiHelpers)
+session:setUI(newAzulUI)
 
 plugin.Unloading:Connect(function()
 	settingsStore:saveSettings()

@@ -760,4 +760,13 @@ function AzulService.readPushConfig(pushConfigPath: { string }): ({ [string]: an
 	return configPayload, nil
 end
 
+function AzulService.parseCommaSeparatedList(str: string): { string }
+	local result = {}
+	for segment in str:gmatch("([^,]+)") do
+		local trimmed = segment:match("^%s*(.-)%s*$")
+		if trimmed and trimmed ~= "" then table.insert(result, trimmed) end
+	end
+	return result
+end
+
 return AzulService
