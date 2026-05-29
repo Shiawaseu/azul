@@ -535,14 +535,17 @@ function SyncSession.new(plugin: Plugin, settingsStore: SettingsStore.SettingsSt
 		local sent = sendMessage("fullSnapshot", { data = instances })
 		if not sent then
 			-- Full snapshot encoding failed; find and exclude the problematic instance(s)
-			self:infoPrint("Full snapshot encoding failed — scanning for non-encodable instances...")
+			self:infoPrint("Full snapshot encoding failed! Scanning for non-encodable instances...")
 			local filteredInstances = {}
 			for _, instanceData in ipairs(instances) do
 				if pcall(HttpService.JSONEncode, HttpService, instanceData) then
 					table.insert(filteredInstances, instanceData)
 				else
 					warn(
-						`[Azul]: Instance "{instanceData.name}" ({instanceData.className}) at {table.concat(instanceData.path or {}, ".")} cannot be JSON-encoded and will be excluded from this sync session. This is usually caused by null bytes or non-UTF-8 characters in the instance name or script source.`
+						`[Azul]: Instance "{instanceData.name}" ({instanceData.className}) at {table.concat(
+							instanceData.path or {},
+							"."
+						)} cannot be JSON-encoded and will be excluded from this sync session. This is usually caused by null bytes or non-UTF-8 characters in the instance name or script source.`
 					)
 				end
 			end
@@ -550,7 +553,7 @@ function SyncSession.new(plugin: Plugin, settingsStore: SettingsStore.SettingsSt
 			if #filteredInstances > 0 then
 				sendMessage("fullSnapshot", { data = filteredInstances })
 			else
-				warn("[Azul]: No instances could be encoded — sync cannot proceed for this session.")
+				warn("[Azul]: No instances could be encoded, sync cannot proceed for this session.")
 				return
 			end
 		end
