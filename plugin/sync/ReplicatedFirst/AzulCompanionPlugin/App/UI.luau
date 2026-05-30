@@ -432,6 +432,12 @@ function UI.new(plugin, callbacks, settingsScope, helpers): AzulUI
 									end,
 								},
 							}),
+							Text {
+								Text = `Azul Plugin v{AzulService.VERSION}`,
+								TextSize = Theme.TextSize.Small,
+								Color = Theme.Colors.TextDimmed,
+								AutomaticSize = Enum.AutomaticSize.XY,
+							},
 						},
 					}),
 				},
