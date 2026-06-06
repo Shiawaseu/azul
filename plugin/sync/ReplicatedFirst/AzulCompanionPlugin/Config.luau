@@ -2,6 +2,12 @@ local Enums = require("./Enums")
 
 configTable = {
 	WS_URL = "ws://localhost:8080",
+
+	--// Auto-Reconnect Settings
+	MAX_HANDSHAKES = 5, --// Maximum handshake attempts per connection
+	MAX_RECONNECTIONS = -1, --// Maximum total reconnection attempts before giving up
+	RECONNECTION_INTERVAL = 5,
+	
 	HEARTBEAT_INTERVAL = 30,
 	BATCH_IDLE_WINDOW = 0.1,
 	SCRIPT_CHANGE_DEBOUNCE = 0.35,
