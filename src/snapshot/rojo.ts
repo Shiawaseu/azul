@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { log } from "../util/log.js";
 import {
   classifyScriptFileName,
+  isInstanceJsonName,
   isScriptFileName,
   ScriptClassName,
 } from "../util/scriptFile.js";
@@ -19,6 +20,134 @@ export interface RojoSnapshotOptions {
   projectFile?: string;
   cwd?: string;
   destPrefix?: string[];
+}
+
+function convertExplicitRojoProperty(typeStr: string, value: any): any {
+  const normalizedType = typeStr.toLowerCase();
+  if (normalizedType === "vector3") {
+    if (Array.isArray(value) && value.length === 3) {
+      return { __type: "Vector3", x: value[0], y: value[1], z: value[2] };
+    }
+  }
+  if (normalizedType === "vector2") {
+    if (Array.isArray(value) && value.length === 2) {
+      return { __type: "Vector2", x: value[0], y: value[1] };
+    }
+  }
+  if (normalizedType === "color3") {
+    if (Array.isArray(value) && value.length === 3) {
+      return { __type: "Color3", r: value[0], g: value[1], b: value[2] };
+    }
+  }
+  if (normalizedType === "color3uint8") {
+    if (Array.isArray(value) && value.length === 3) {
+      return { __type: "Color3uint8", r: value[0], g: value[1], b: value[2] };
+    }
+  }
+  if (normalizedType === "cframe") {
+    if (Array.isArray(value)) {
+      return { __type: "CFrame", components: value };
+    }
+  }
+  if (normalizedType === "udim") {
+    if (Array.isArray(value) && value.length === 2) {
+      return { __type: "UDim", scale: value[0], offset: value[1] };
+    }
+  }
+  if (normalizedType === "udim2") {
+    if (Array.isArray(value) && value.length === 4) {
+      return { __type: "UDim2", xScale: value[0], xOffset: value[1], yScale: value[2], yOffset: value[3] };
+    }
+  }
+  if (normalizedType === "brickcolor") {
+    return { __type: "BrickColor", number: typeof value === "number" ? value : 0 };
+  }
+  if (normalizedType === "numberrange") {
+    if (Array.isArray(value) && value.length === 2) {
+      return { __type: "NumberRange", min: value[0], max: value[1] };
+    }
+  }
+  if (normalizedType === "rect") {
+    if (Array.isArray(value)) {
+      if (value.length === 4) {
+        return { __type: "Rect", minX: value[0], minY: value[1], maxX: value[2], maxY: value[3] };
+      }
+      if (value.length === 2 && Array.isArray(value[0]) && Array.isArray(value[1])) {
+        return { __type: "Rect", minX: value[0][0], minY: value[0][1], maxX: value[1][0], maxY: value[1][1] };
+      }
+    }
+  }
+  if (normalizedType === "enum") {
+    if (typeof value === "object" && value !== null) {
+      const enumType = value.enumType || value.EnumType || value.Type || value.type;
+      const enumValue = value.value || value.Value || value.name || value.Name;
+      if (enumType && enumValue !== undefined) {
+        return {
+          __type: "Enum",
+          enumType: String(enumType).replace(/^Enum\./, ""),
+          value: enumValue
+        };
+      }
+    }
+    return value;
+  }
+  return value;
+}
+
+export function convertImplicitRojoProperty(propName: string, val: any): any {
+  if (val === null || val === undefined) {
+    return null;
+  }
+  if (typeof val === "object" && !Array.isArray(val) && "Type" in val && "Value" in val) {
+    return convertExplicitRojoProperty(val.Type, val.Value);
+  }
+  if (typeof val === "object" && !Array.isArray(val) && "type" in val && "value" in val) {
+    return convertExplicitRojoProperty(val.type, val.value);
+  }
+
+  if (Array.isArray(val)) {
+    const allNumbers = val.every(v => typeof v === 'number');
+    if (allNumbers) {
+      const lowerName = propName.toLowerCase();
+      if (val.length === 12) {
+        return { __type: "CFrame", components: val };
+      }
+      if (val.length === 3) {
+        if (lowerName.includes("color")) {
+          if (val.some(v => v > 1.0)) {
+            return { __type: "Color3uint8", r: val[0], g: val[1], b: val[2] };
+          }
+          return { __type: "Color3", r: val[0], g: val[1], b: val[2] };
+        }
+        return { __type: "Vector3", x: val[0], y: val[1], z: val[2] };
+      }
+      if (val.length === 2) {
+        if (lowerName.includes("range")) {
+          return { __type: "NumberRange", min: val[0], max: val[1] };
+        }
+        if (lowerName.includes("udim") || lowerName.includes("size") || lowerName.includes("position")) {
+          return { __type: "UDim", scale: val[0], offset: val[1] };
+        }
+        return { __type: "Vector2", x: val[0], y: val[1] };
+      }
+      if (val.length === 4) {
+        if (lowerName.includes("rect")) {
+          return { __type: "Rect", minX: val[0], minY: val[1], maxX: val[2], maxY: val[3] };
+        }
+        return { __type: "UDim2", xScale: val[0], xOffset: val[1], yScale: val[2], yOffset: val[3] };
+      }
+    }
+  }
+
+  if (typeof val === "object" && val !== null) {
+    const copy: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      copy[k] = convertImplicitRojoProperty(k, v);
+    }
+    return copy;
+  }
+
+  return val;
 }
 
 /**
@@ -230,6 +359,155 @@ export class RojoSnapshotBuilder {
     }
   }
 
+  public async parseModelFile(
+    filePath: string,
+    destPath: string[],
+  ): Promise<InstanceData[]> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(filePath, "utf-8");
+    } catch (error) {
+      throw new Error(`Failed to read .model.json at ${filePath}: ${error}`);
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`Failed to parse .model.json at ${filePath}: ${error}`);
+    }
+
+    const results: InstanceData[] = [];
+    const name = destPath[destPath.length - 1] || "Model";
+    await this.parseModelNode(parsed, name, destPath, path.dirname(filePath), results);
+    return results;
+  }
+
+  private async parseModelNode(
+    node: any,
+    name: string,
+    currentPath: string[],
+    baseDir: string,
+    results: InstanceData[],
+  ): Promise<void> {
+    if (typeof node !== "object" || node === null) return;
+
+    // Check for $path
+    const pathHint = node.$path || node.path;
+    if (typeof pathHint === "string") {
+      const absPath = path.resolve(baseDir, pathHint);
+      const exists = await this.exists(absPath);
+      if (!exists) {
+        throw new Error(`$path target ${absPath} does not exist.`);
+      }
+
+      const kind = await this.pathKind(absPath);
+      if (kind === "file") {
+        const fileName = path.basename(absPath);
+        if (isInstanceJsonName(fileName)) {
+          const modelInstances = await this.parseModelFile(absPath, currentPath);
+          results.push(...modelInstances);
+          return;
+        } else if (this.isJsonModuleFile(fileName)) {
+          const source = await this.readJsonModuleSource(absPath);
+          this.moduleContainers.add(currentPath.join("/"));
+          results.push({
+            guid: this.makeGuid(),
+            className: "ModuleScript",
+            name,
+            path: [...currentPath],
+            source,
+          });
+          return;
+        } else if (isScriptFileName(fileName)) {
+          const { className } = classifyScriptFileName(fileName);
+          const source = await fs.readFile(absPath, "utf-8");
+          this.moduleContainers.add(currentPath.join("/"));
+          results.push({
+            guid: this.makeGuid(),
+            className,
+            name,
+            path: [...currentPath],
+            source,
+          });
+          return;
+        } else {
+          throw new Error(`Unsupported $path file type: ${absPath}`);
+        }
+      } else if (kind === "dir") {
+        await this.walkDirectory(absPath, currentPath, results, new Set());
+        return;
+      }
+    }
+
+    const className = node.ClassName || node.className || node.$className || "Folder";
+    
+    // Resolve properties
+    const rawProperties = node.Properties || node.properties || node.$properties;
+    const properties: Record<string, any> = {};
+    if (rawProperties && typeof rawProperties === "object") {
+      for (const [k, v] of Object.entries(rawProperties)) {
+        properties[k] = convertImplicitRojoProperty(k, v);
+      }
+    }
+
+    // Resolve attributes
+    const rawAttributes = node.Attributes || node.attributes || node.$attributes;
+    const attributes: Record<string, any> = {};
+    if (rawAttributes && typeof rawAttributes === "object") {
+      for (const [k, v] of Object.entries(rawAttributes)) {
+        attributes[k] = v;
+      }
+    }
+
+    // Resolve tags
+    const rawTags = node.Tags || node.tags || node.$tags;
+    let tags: string[] | undefined = undefined;
+    if (Array.isArray(rawTags)) {
+      tags = rawTags.map(t => String(t));
+    }
+
+    const instance: InstanceData = {
+      guid: this.makeGuid(),
+      className,
+      name,
+      path: [...currentPath],
+    };
+
+    if (Object.keys(properties).length > 0) {
+      instance.properties = properties;
+    }
+    if (Object.keys(attributes).length > 0) {
+      instance.attributes = attributes;
+    }
+    if (tags && tags.length > 0) {
+      instance.tags = tags;
+    }
+
+    this.moduleContainers.add(currentPath.join("/"));
+    results.push(instance);
+
+    // Recursively parse children
+    const rawChildren = node.Children || node.children || node.$children;
+    if (Array.isArray(rawChildren)) {
+      for (let i = 0; i < rawChildren.length; i++) {
+        const childNode = rawChildren[i];
+        if (typeof childNode === "object" && childNode !== null) {
+          const childName = childNode.Name || childNode.name || childNode.$name || `Instance${i}`;
+          const childPath = [...currentPath, childName];
+          await this.parseModelNode(childNode, childName, childPath, baseDir, results);
+        }
+      }
+    } else if (rawChildren && typeof rawChildren === "object") {
+      for (const [childName, childNode] of Object.entries(rawChildren)) {
+        if (typeof childNode === "object" && childNode !== null) {
+          const childPath = [...currentPath, childName];
+          await this.parseModelNode(childNode, childName, childPath, baseDir, results);
+        }
+      }
+    }
+  }
+
   private async emitNode(
     name: string,
     node: Record<string, any>,
@@ -250,11 +528,69 @@ export class RojoSnapshotBuilder {
       source: string;
       className?: ScriptClassName;
     } | null = null;
+    let initModelFile: string | null = null;
+
     if (absPath && pathKind === "dir") {
+      const modelPath = path.join(absPath, "init.model.json");
+      if (await this.exists(modelPath)) {
+        initModelFile = modelPath;
+      }
       initScript = await this.findInit(absPath);
     } else if (absPath && pathKind === "file") {
       const fileName = path.basename(absPath);
-      if (this.isJsonModuleFile(fileName)) {
+      if (isInstanceJsonName(fileName)) {
+        this.ensureFolder(pathSegments.slice(0, -1), results);
+        const modelInstances = await this.parseModelFile(absPath, pathSegments);
+        if (modelInstances.length > 0) {
+          const rootInstance = modelInstances[0];
+          
+          if (node.$className) {
+            rootInstance.className = node.$className;
+          }
+          
+          if (node.$properties) {
+            const mergedProps = { ...(rootInstance.properties || {}) };
+            for (const [k, v] of Object.entries(node.$properties)) {
+              mergedProps[k] = convertImplicitRojoProperty(k, v);
+            }
+            rootInstance.properties = mergedProps;
+          }
+
+          if (node.$attributes) {
+            const mergedAttrs = { ...(rootInstance.attributes || {}) };
+            for (const [k, v] of Object.entries(node.$attributes)) {
+              mergedAttrs[k] = v;
+            }
+            rootInstance.attributes = mergedAttrs;
+          }
+
+          if (node.$tags) {
+            const existingTags = new Set(rootInstance.tags || []);
+            if (Array.isArray(node.$tags)) {
+              for (const tag of node.$tags) {
+                existingTags.add(String(tag));
+              }
+            }
+            rootInstance.tags = [...existingTags];
+          }
+
+          results.push(...modelInstances);
+        }
+
+        // Recurse into children defined in JSON
+        for (const [childName, childValue] of Object.entries(node)) {
+          if (childName.startsWith("$")) continue;
+          if (typeof childValue !== "object" || childValue === null) continue;
+          await this.emitNode(
+            childName,
+            childValue,
+            [...pathSegments, childName],
+            projectDir,
+            results,
+          );
+        }
+        return;
+      } else if (this.isJsonModuleFile(fileName)) {
         const source = await this.readJsonModuleSource(absPath);
         initScript = { fileName, source, className: "ModuleScript" };
       } else {
@@ -266,8 +602,55 @@ export class RojoSnapshotBuilder {
       }
     }
 
-    // If there's an init script, the folder becomes a ModuleScript at the same path.
-    if (initScript) {
+    if (initModelFile) {
+      this.ensureFolder(pathSegments.slice(0, -1), results);
+      this.moduleContainers.add(pathSegments.join("/"));
+      
+      const modelInstances = await this.parseModelFile(initModelFile, pathSegments);
+      if (modelInstances.length > 0) {
+        const rootInstance = modelInstances[0];
+        
+        if (node.$className) {
+          rootInstance.className = node.$className;
+        }
+        
+        if (node.$properties) {
+          const mergedProps = { ...(rootInstance.properties || {}) };
+          for (const [k, v] of Object.entries(node.$properties)) {
+            mergedProps[k] = convertImplicitRojoProperty(k, v);
+          }
+          rootInstance.properties = mergedProps;
+        }
+
+        if (node.$attributes) {
+          const mergedAttrs = { ...(rootInstance.attributes || {}) };
+          for (const [k, v] of Object.entries(node.$attributes)) {
+            mergedAttrs[k] = v;
+          }
+          rootInstance.attributes = mergedAttrs;
+        }
+
+        if (node.$tags) {
+          const existingTags = new Set(rootInstance.tags || []);
+          if (Array.isArray(node.$tags)) {
+            for (const tag of node.$tags) {
+              existingTags.add(String(tag));
+            }
+          }
+          rootInstance.tags = [...existingTags];
+        }
+
+        if (initScript) {
+          const scriptClass =
+            initScript.className ??
+            classifyScriptFileName(initScript.fileName).className;
+          rootInstance.className = scriptClass;
+          rootInstance.source = initScript.source;
+        }
+
+        results.push(...modelInstances);
+      }
+    } else if (initScript) {
       this.ensureFolder(pathSegments.slice(0, -1), results);
       this.moduleContainers.add(pathSegments.join("/"));
       const scriptClass =
@@ -339,8 +722,40 @@ export class RojoSnapshotBuilder {
       (e) => e.isFile() && initCandidates.includes(e.name),
     );
 
-    if (initEntry) {
-      const key = destPath.join("/");
+    const initModelEntry = entries.find(
+      (e) => e.isFile() && e.name === "init.model.json"
+    );
+
+    const handledEntries = new Set<string>();
+    const key = destPath.join("/");
+
+    if (initModelEntry) {
+      handledEntries.add("init.model.json");
+      if (!this.moduleContainers.has(key)) {
+        this.moduleContainers.add(key);
+        this.ensureFolder(destPath.slice(0, -1), results);
+        
+        const modelInstances = await this.parseModelFile(
+          path.join(dirPath, "init.model.json"),
+          destPath,
+        );
+        if (modelInstances.length > 0) {
+          const rootInstance = modelInstances[0];
+          if (initEntry) {
+            handledEntries.add(initEntry.name);
+            const scriptClass = classifyScriptFileName(initEntry.name).className;
+            const source = await fs.readFile(
+              path.join(dirPath, initEntry.name),
+              "utf-8",
+            );
+            rootInstance.className = scriptClass;
+            rootInstance.source = source;
+          }
+          results.push(...modelInstances);
+        }
+      }
+    } else if (initEntry) {
+      handledEntries.add(initEntry.name);
       if (!this.moduleContainers.has(key)) {
         this.moduleContainers.add(key);
         this.ensureFolder(destPath.slice(0, -1), results);
@@ -378,11 +793,44 @@ export class RojoSnapshotBuilder {
     }
 
     for (const entry of entries) {
+      if (handledEntries.has(entry.name)) continue;
       const fullPath = path.join(dirPath, entry.name);
       if (this.isIgnored(fullPath)) continue;
 
       // Skip entries explicitly defined in the project tree
       if (definedChildren.has(entry.name)) {
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith(".model.json") && entry.name !== "init.model.json") {
+        handledEntries.add(entry.name);
+        const baseName = entry.name.slice(0, -".model.json".length);
+        if (definedChildren.has(baseName)) {
+          continue;
+        }
+
+        this.ensureFolder(destPath, results);
+        const modelInstances = await this.parseModelFile(fullPath, [...destPath, baseName]);
+        if (modelInstances.length > 0) {
+          const rootInstance = modelInstances[0];
+          const companionScript = entries.find(
+            (e) =>
+              e.isFile() &&
+              isScriptFileName(e.name) &&
+              classifyScriptFileName(e.name).scriptName === baseName,
+          );
+          if (companionScript) {
+            handledEntries.add(companionScript.name);
+            const scriptClass = classifyScriptFileName(companionScript.name).className;
+            const source = await fs.readFile(
+              path.join(dirPath, companionScript.name),
+              "utf-8",
+            );
+            rootInstance.className = scriptClass;
+            rootInstance.source = source;
+          }
+          results.push(...modelInstances);
+        }
         continue;
       }
 
