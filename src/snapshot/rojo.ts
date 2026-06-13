@@ -39,11 +39,12 @@ function convertExplicitRojoProperty(typeStr: string, value: any): any {
       return { __type: "Color3", r: value[0], g: value[1], b: value[2] };
     }
   }
+  /*
   if (normalizedType === "color3uint8") {
     if (Array.isArray(value) && value.length === 3) {
       return { __type: "Color3uint8", r: value[0], g: value[1], b: value[2] };
     }
-  }
+  } */
   if (normalizedType === "cframe") {
     if (Array.isArray(value)) {
       return { __type: "CFrame", components: value };
