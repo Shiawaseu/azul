@@ -684,7 +684,6 @@ export class RojoSnapshotBuilder {
       }
 
       if (entry.isDirectory()) {
-        this.ensureFolder([...destPath, entry.name], results);
         await this.walkDirectory(
           fullPath,
           [...destPath, entry.name],
