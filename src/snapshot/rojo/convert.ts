@@ -115,9 +115,9 @@ function convertExplicitRojoProperty(typeStr: string, value: any): any {
     if (typeof value === "object" && value !== null) {
       return {
         __type: "Axes",
-        X: value.X ?? value.x ?? true,
-        Y: value.Y ?? value.y ?? true,
-        Z: value.Z ?? value.z ?? true,
+        x: value.X ?? value.x ?? true,
+        y: value.Y ?? value.y ?? true,
+        z: value.Z ?? value.z ?? true,
       };
     }
   }
@@ -125,19 +125,23 @@ function convertExplicitRojoProperty(typeStr: string, value: any): any {
     if (typeof value === "object" && value !== null) {
       return {
         __type: "Faces",
-        Top: value.Top ?? value.top ?? false,
-        Bottom: value.Bottom ?? value.bottom ?? false,
-        Left: value.Left ?? value.left ?? false,
-        Right: value.Right ?? value.right ?? false,
-        Front: value.Front ?? value.front ?? false,
-        Back: value.Back ?? value.back ?? false,
+        top: value.Top ?? value.top ?? false,
+        bottom: value.Bottom ?? value.bottom ?? false,
+        left: value.Left ?? value.left ?? false,
+        right: value.Right ?? value.right ?? false,
+        front: value.Front ?? value.front ?? false,
+        back: value.Back ?? value.back ?? false,
       };
     }
   }
   if (normalizedType === "ray") {
     if (typeof value === "object" && value !== null) {
-      const origin = Array.isArray(value.origin ?? value.Origin) ? { x: value.origin[0], y: value.origin[1], z: value.origin[2] } : { x: 0, y: 0, z: 0 };
-      const direction = Array.isArray(value.direction ?? value.Direction) ? { x: value.direction[0], y: value.direction[1], z: value.direction[2] } : { x: 0, y: 0, z: 1 };
+      const origin = Array.isArray(value.origin ?? value.Origin)
+        ? { __type: "Vector3", x: value.origin[0], y: value.origin[1], z: value.origin[2] }
+        : { __type: "Vector3", x: 0, y: 0, z: 0 };
+      const direction = Array.isArray(value.direction ?? value.Direction)
+        ? { __type: "Vector3", x: value.direction[0], y: value.direction[1], z: value.direction[2] }
+        : { __type: "Vector3", x: 0, y: 0, z: 1 };
       return { __type: "Ray", origin, direction };
     }
   }
