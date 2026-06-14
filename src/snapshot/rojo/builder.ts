@@ -1,14 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { log } from "../util/log.js";
+import { log } from "../../util/log.js";
 import {
   classifyScriptFileName,
   isInstanceJsonName,
   isScriptFileName,
   ScriptClassName,
-} from "../util/scriptFile.js";
-import type { InstanceData } from "../ipc/messages.js";
+} from "../../util/scriptFile.js";
+import type { InstanceData } from "../../ipc/messages.js";
+import { convertImplicitRojoProperty } from "./convert.js";
 
 interface RojoProject {
   name: string;
@@ -22,138 +23,6 @@ export interface RojoSnapshotOptions {
   destPrefix?: string[];
 }
 
-function convertExplicitRojoProperty(typeStr: string, value: any): any {
-  const normalizedType = typeStr.toLowerCase();
-  if (normalizedType === "vector3") {
-    if (Array.isArray(value) && value.length === 3) {
-      return { __type: "Vector3", x: value[0], y: value[1], z: value[2] };
-    }
-  }
-  if (normalizedType === "vector2") {
-    if (Array.isArray(value) && value.length === 2) {
-      return { __type: "Vector2", x: value[0], y: value[1] };
-    }
-  }
-  if (normalizedType === "color3") {
-    if (Array.isArray(value) && value.length === 3) {
-      return { __type: "Color3", r: value[0], g: value[1], b: value[2] };
-    }
-  }
-  /*
-  if (normalizedType === "color3uint8") {
-    if (Array.isArray(value) && value.length === 3) {
-      return { __type: "Color3uint8", r: value[0], g: value[1], b: value[2] };
-    }
-  } */
-  if (normalizedType === "cframe") {
-    if (Array.isArray(value)) {
-      return { __type: "CFrame", components: value };
-    }
-  }
-  if (normalizedType === "udim") {
-    if (Array.isArray(value) && value.length === 2) {
-      return { __type: "UDim", scale: value[0], offset: value[1] };
-    }
-  }
-  if (normalizedType === "udim2") {
-    if (Array.isArray(value) && value.length === 4) {
-      return { __type: "UDim2", xScale: value[0], xOffset: value[1], yScale: value[2], yOffset: value[3] };
-    }
-  }
-  if (normalizedType === "brickcolor") {
-    return { __type: "BrickColor", number: typeof value === "number" ? value : 0 };
-  }
-  if (normalizedType === "numberrange") {
-    if (Array.isArray(value) && value.length === 2) {
-      return { __type: "NumberRange", min: value[0], max: value[1] };
-    }
-  }
-  if (normalizedType === "rect") {
-    if (Array.isArray(value)) {
-      if (value.length === 4) {
-        return { __type: "Rect", minX: value[0], minY: value[1], maxX: value[2], maxY: value[3] };
-      }
-      if (value.length === 2 && Array.isArray(value[0]) && Array.isArray(value[1])) {
-        return { __type: "Rect", minX: value[0][0], minY: value[0][1], maxX: value[1][0], maxY: value[1][1] };
-      }
-    }
-  }
-  if (normalizedType === "enum") {
-    if (typeof value === "object" && value !== null) {
-      const enumType = value.enumType || value.EnumType || value.Type || value.type;
-      const enumValue = value.value || value.Value || value.name || value.Name;
-      if (enumType && enumValue !== undefined) {
-        return {
-          __type: "Enum",
-          enumType: String(enumType).replace(/^Enum\./, ""),
-          value: enumValue
-        };
-      }
-    }
-    return value;
-  }
-  return value;
-}
-
-export function convertImplicitRojoProperty(propName: string, val: any): any {
-  if (val === null || val === undefined) {
-    return null;
-  }
-  if (typeof val === "object" && !Array.isArray(val) && "Type" in val && "Value" in val) {
-    return convertExplicitRojoProperty(val.Type, val.Value);
-  }
-  if (typeof val === "object" && !Array.isArray(val) && "type" in val && "value" in val) {
-    return convertExplicitRojoProperty(val.type, val.value);
-  }
-
-  if (Array.isArray(val)) {
-    const allNumbers = val.every(v => typeof v === 'number');
-    if (allNumbers) {
-      const lowerName = propName.toLowerCase();
-      if (val.length === 12) {
-        return { __type: "CFrame", components: val };
-      }
-      if (val.length === 3) {
-        if (lowerName.includes("color")) {
-          if (val.some(v => v > 1.0)) {
-            return { __type: "Color3uint8", r: val[0], g: val[1], b: val[2] };
-          }
-          return { __type: "Color3", r: val[0], g: val[1], b: val[2] };
-        }
-        return { __type: "Vector3", x: val[0], y: val[1], z: val[2] };
-      }
-      if (val.length === 2) {
-        if (lowerName.includes("range")) {
-          return { __type: "NumberRange", min: val[0], max: val[1] };
-        }
-        if (lowerName.includes("udim") || lowerName.includes("size") || lowerName.includes("position")) {
-          return { __type: "UDim", scale: val[0], offset: val[1] };
-        }
-        return { __type: "Vector2", x: val[0], y: val[1] };
-      }
-      if (val.length === 4) {
-        if (lowerName.includes("rect")) {
-          return { __type: "Rect", minX: val[0], minY: val[1], maxX: val[2], maxY: val[3] };
-        }
-        return { __type: "UDim2", xScale: val[0], xOffset: val[1], yScale: val[2], yOffset: val[3] };
-      }
-    }
-  }
-
-  if (typeof val === "object" && val !== null) {
-    const copy: Record<string, any> = {};
-    for (const [k, v] of Object.entries(val)) {
-      copy[k] = convertImplicitRojoProperty(k, v);
-    }
-    return copy;
-  }
-
-  return val;
-}
-
-/**
- * Builds InstanceData[] from a Rojo-style default.project.json (compat layer).
- */
 export class RojoSnapshotBuilder {
   private projectFile: string;
   private cwd: string;
@@ -185,16 +54,10 @@ export class RojoSnapshotBuilder {
 
     log.debug(`destPrefix: ${this.destPrefix.join("/")}`);
 
-    // If the root of the project tree doesn't have a $className of "Datamodel", the Rojo project is not a Place and
-    // we cannot guess the root of the emitted tree.
     if (
       (!tree.$className || tree.$className !== "Datamodel") &&
       (!this.destPrefix || this.destPrefix.length === 0)
     ) {
-      /**
-       * Rojo error:
-       * Cannot sync a model as a place. Ensure Rojo is serving a project file that has a DataModel at the root of its tree and try again.
-       */
       log.error(
         `Cannot build Rojo compatibility snapshot: project file does not have a Datamodel root.`,
       );
@@ -234,7 +97,6 @@ export class RojoSnapshotBuilder {
         );
         const source = await fs.readFile(absRoot, "utf-8");
 
-        // If the root is a file, it becomes the single instance emitted at the destPrefix (or root if no prefix).
         const destPath =
           this.destPrefix.length === 0
             ? [scriptName]
@@ -261,12 +123,10 @@ export class RojoSnapshotBuilder {
       }
     }
 
-    // Walk any children defined in the root of the project tree (if $path is not a file)
     if (hasChildren) {
       await this.walkTree(tree, [], projectDir, results);
     }
 
-    // Stable ordering: shallow-first, then lexical for determinism
     results.sort((a, b) => {
       if (a.path.length !== b.path.length) {
         return a.path.length - b.path.length;
@@ -393,7 +253,6 @@ export class RojoSnapshotBuilder {
   ): Promise<void> {
     if (typeof node !== "object" || node === null) return;
 
-    // Check for $path
     const pathHint = node.$path || node.path;
     if (typeof pathHint === "string") {
       const absPath = path.resolve(baseDir, pathHint);
@@ -442,8 +301,7 @@ export class RojoSnapshotBuilder {
     }
 
     const className = node.ClassName || node.className || node.$className || "Folder";
-    
-    // Resolve properties
+
     const rawProperties = node.Properties || node.properties || node.$properties;
     const properties: Record<string, any> = {};
     if (rawProperties && typeof rawProperties === "object") {
@@ -452,16 +310,14 @@ export class RojoSnapshotBuilder {
       }
     }
 
-    // Resolve attributes
     const rawAttributes = node.Attributes || node.attributes || node.$attributes;
     const attributes: Record<string, any> = {};
     if (rawAttributes && typeof rawAttributes === "object") {
       for (const [k, v] of Object.entries(rawAttributes)) {
-        attributes[k] = v;
+        attributes[k] = convertImplicitRojoProperty(k, v);
       }
     }
 
-    // Resolve tags
     const rawTags = node.Tags || node.tags || node.$tags;
     let tags: string[] | undefined = undefined;
     if (Array.isArray(rawTags)) {
@@ -488,7 +344,6 @@ export class RojoSnapshotBuilder {
     this.moduleContainers.add(currentPath.join("/"));
     results.push(instance);
 
-    // Recursively parse children
     const rawChildren = node.Children || node.children || node.$children;
     if (Array.isArray(rawChildren)) {
       for (let i = 0; i < rawChildren.length; i++) {
@@ -578,7 +433,6 @@ export class RojoSnapshotBuilder {
           results.push(...modelInstances);
         }
 
-        // Recurse into children defined in JSON
         for (const [childName, childValue] of Object.entries(node)) {
           if (childName.startsWith("$")) continue;
           if (typeof childValue !== "object" || childValue === null) continue;
@@ -674,7 +528,6 @@ export class RojoSnapshotBuilder {
       });
     }
 
-    // Recurse into children defined in JSON
     for (const [childName, childValue] of Object.entries(node)) {
       if (childName.startsWith("$")) continue;
       if (typeof childValue !== "object" || childValue === null) continue;
@@ -687,7 +540,6 @@ export class RojoSnapshotBuilder {
       );
     }
 
-    // Walk filesystem for $path mappings
     if (absPath && pathKind === "dir") {
       await this.walkDirectory(absPath, pathSegments, results, definedChildren);
     }
@@ -701,7 +553,6 @@ export class RojoSnapshotBuilder {
       return node.$className;
     }
     if (pathSegments.length === 1) {
-      // Service root
       return pathSegments[0];
     }
     return "Folder";
@@ -718,7 +569,6 @@ export class RojoSnapshotBuilder {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     const initCandidates = this.getInitCandidates();
 
-    // If this directory has an init, the directory becomes that script; children attach under it
     const initEntry = entries.find(
       (e) => e.isFile() && initCandidates.includes(e.name),
     );
@@ -777,7 +627,6 @@ export class RojoSnapshotBuilder {
       this.ensureFolder(destPath, results);
     }
 
-    // Sub-project override
     const subProjectPath = path.join(dirPath, "default.project.json");
     if (await this.exists(subProjectPath)) {
       const previousProjectFile = this.projectFile;
@@ -798,7 +647,6 @@ export class RojoSnapshotBuilder {
       const fullPath = path.join(dirPath, entry.name);
       if (this.isIgnored(fullPath)) continue;
 
-      // Skip entries explicitly defined in the project tree
       if (definedChildren.has(entry.name)) {
         continue;
       }
@@ -846,7 +694,6 @@ export class RojoSnapshotBuilder {
         continue;
       }
 
-      // Skip init files here (handled earlier)
       if (initCandidates.includes(entry.name)) {
         continue;
       }
@@ -890,15 +737,11 @@ export class RojoSnapshotBuilder {
     }
   }
 
-  /**
-   * Ensure a Folder chain exists for the given path.
-   */
   private ensureFolder(pathSegments: string[], results: InstanceData[]): void {
     if (pathSegments.length === 0) return;
     const key = pathSegments.join("/");
     if (this.moduleContainers.has(key)) return;
     if (this.emittedFolders.has(key)) return;
-    // ensure parents first
     this.ensureFolder(pathSegments.slice(0, -1), results);
     this.emittedFolders.add(key);
     results.push({

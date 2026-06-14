@@ -5,7 +5,7 @@ import { IPCServer } from "./ipc/server.js";
 import { config } from "./config.js";
 import { log } from "./util/log.js";
 import { SnapshotBuilder } from "./snapshot.js";
-import { RojoSnapshotBuilder } from "./snapshot/rojo.js";
+import { RojoSnapshotBuilder } from "./snapshot/rojo/index.js";
 import { generateGUID } from "./util/id.js";
 import { classifyScriptFileName, isInstanceJsonName, isScriptFileName } from "./util/scriptFile.js";
 import {
